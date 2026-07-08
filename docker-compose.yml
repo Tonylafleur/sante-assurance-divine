@@ -1,0 +1,80 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: sad_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: sad_db
+      POSTGRES_USER: sad_user
+      POSTGRES_PASSWORD: sad_pass_2024
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U sad_user -d sad_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: sad_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://sad_user:sad_pass_2024@postgres:5432/sad_db
+      SECRET_KEY: sad-secret-key-cameroun-2024-changez-moi
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      ENVIRONMENT: production
+      AI_PROVIDER: ${AI_PROVIDER:-auto}
+      OLLAMA_URL: http://ollama:11434
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.1:8b-instruct-q4_K_M}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: sad_ollama
+    restart: unless-stopped
+    volumes:
+      - ollama_data:/root/.ollama
+    ports:
+      - "11434:11434"
+    # GPU NVIDIA si disponible (décommenter) :
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: 1
+    #           capabilities: [gpu]
+
+  frontend:
+    build: ./frontend
+    container_name: sad_frontend
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+
+volumes:
+  postgres_data:
+    driver: local
+  ollama_data:
+    driver: local
+
+networks:
+  default:
+    name: sad_network
